@@ -34,7 +34,11 @@ fn run() {
                     }
                 }
                 Key::Backspace => {
-                    session.process_key(0xff08);
+                    if composing {
+                        session.process_key(0xff08);
+                    } else {
+                        commited.pop();
+                    }
                 }
                 Key::Char(' ') => {
                     if composing {
