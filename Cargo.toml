@@ -3,6 +3,7 @@ name = "rime"
 version = "0.1.0"
 authors = ["wzhd"]
 edition = "2018"
+license = "MIT"
 
 [dependencies]
 derivative = "1.0"
