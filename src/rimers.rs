@@ -10,7 +10,6 @@ use crate::cdef::RimeMenu;
 use crate::cdef::RimeStatus;
 use std::ffi::NulError;
 use std::ffi::{CStr, CString};
-use std::fmt;
 use std::os::raw::c_int;
 use std::path::Path;
 use std::path::PathBuf;
