@@ -41,15 +41,14 @@ fn run() -> Result<(), Error> {
 
     let mut commited = String::new();
 
-    'outer: loop {
+    let stdin = stdin();
+    for k in stdin.keys() {
         let context = session.context().expect("Failed to get rime context");
         let composing = context.composition.preedit.is_some();
-        let stdin = stdin();
-        let k = stdin.keys().next().expect("No more key events");
 
         let k = k?;
         match k {
-            Key::Ctrl('c') => break 'outer,
+            Key::Ctrl('c') => break,
             Key::Char('\n') => {
                 if composing {
                     session.process_key(0xff0d);
