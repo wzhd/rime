@@ -162,8 +162,7 @@ impl Session {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Debug)]
 pub struct Status {
     /// TODO: is schema_id and name ever null?
     pub schema_id: Option<String>,
@@ -175,19 +174,10 @@ pub struct Status {
     pub simplified: bool,
     pub traditional: bool,
     pub ascii_punct: bool,
-    #[derivative(Debug = "ignore")]
-    api: Rc<RimeApi>,
-    #[derivative(Debug = "ignore")]
-    rime: RimeStatus,
 }
 
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Debug)]
 pub struct Context {
-    #[derivative(Debug = "ignore")]
-    rime_context: RimeContext,
-    #[derivative(Debug = "ignore")]
-    api: Rc<RimeApi>,
     pub commit_text_preview: Option<String>,
     pub composition: Composition,
     pub menu: Menu,
@@ -210,15 +200,10 @@ pub struct Candidate {
     pub comment: Option<String>,
 }
 
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Debug)]
 pub struct Commit {
     /// get_commit will probably not return RimeCommit without valid text, I think
     pub text: String,
-    #[derivative(Debug = "ignore")]
-    rime_commit: RimeCommit,
-    #[derivative(Debug = "ignore")]
-    api: Rc<RimeApi>,
 }
 
 #[derive(Debug)]
@@ -263,11 +248,14 @@ impl Menu {
 }
 
 impl Commit {
-    fn from_raw(api: Rc<RimeApi>, rime_commit: RimeCommit) -> Result<Commit, Utf8Error> {
+    fn from_raw(api: Rc<RimeApi>, mut rime_commit: RimeCommit) -> Result<Commit, Utf8Error> {
+        // Is there a way to convert *mut c_char to String without copying?
+        // Anyway, performance is totally okay
         let text = char_ptr_to_string(rime_commit.text)?;
+        unsafe {
+            api.free_commit.expect("free_commit is null")(&mut rime_commit);
+        }
         let commit = Commit {
-            api,
-            rime_commit,
             text: text.expect("Rime actually returned RimeCommit without text."),
         };
         Ok(commit)
@@ -275,7 +263,7 @@ impl Commit {
 }
 
 impl Status {
-    fn from_raw(api: Rc<RimeApi>, rime: RimeStatus) -> Result<Status, Utf8Error> {
+    fn from_raw(api: Rc<RimeApi>, mut rime: RimeStatus) -> Result<Status, Utf8Error> {
         let schema_id = char_ptr_to_string(rime.schema_id)?;
         let schema_name = char_ptr_to_string(rime.schema_name)?;
         let status = Status {
@@ -288,9 +276,10 @@ impl Status {
             simplified: rime.is_simplified != 0,
             traditional: rime.is_traditional != 0,
             ascii_punct: rime.is_ascii_punct != 0,
-            api,
-            rime,
         };
+        unsafe {
+            api.free_status.expect("free_status is null")(&mut rime);
+        }
         Ok(status)
     }
 }
@@ -298,6 +287,7 @@ impl Status {
 impl Composition {
     fn from_raw(rime_composition: &RimeComposition) -> Result<Composition, Utf8Error> {
         let preedit = char_ptr_to_string(rime_composition.preedit)?;
+        // TODO should rime_composition.preedit be manually freed?
         let composition = Composition {
             length: rime_composition.length,
             cursor_pos: rime_composition.cursor_pos,
@@ -310,13 +300,14 @@ impl Composition {
 }
 
 impl Context {
-    fn new(api: Rc<RimeApi>, rime_context: RimeContext) -> Result<Context, Utf8Error> {
+    fn new(api: Rc<RimeApi>, mut rime_context: RimeContext) -> Result<Context, Utf8Error> {
         let preview = char_ptr_to_string(rime_context.commit_text_preview)?;
         let composition = Composition::from_raw(&rime_context.composition)?;
         let menu = Menu::from_raw(&rime_context.menu)?;
+        unsafe {
+            api.free_context.unwrap()(&mut rime_context);
+        }
         let context = Context {
-            rime_context,
-            api,
             commit_text_preview: preview,
             composition,
             menu,
@@ -334,30 +325,6 @@ impl std::convert::From<std::ffi::NulError> for Error {
 impl std::convert::From<Utf8Error> for Error {
     fn from(error: Utf8Error) -> Self {
         Error::UtfError { error }
-    }
-}
-
-impl Drop for Commit {
-    fn drop(&mut self) {
-        unsafe {
-            self.api.free_commit.expect("free_commit is null")(&mut self.rime_commit);
-        }
-    }
-}
-
-impl Drop for Context {
-    fn drop(&mut self) {
-        unsafe {
-            self.api.free_context.unwrap()(&mut self.rime_context);
-        }
-    }
-}
-
-impl Drop for Status {
-    fn drop(&mut self) {
-        unsafe {
-            self.api.free_status.expect("free_status is null")(&mut self.rime);
-        }
     }
 }
 

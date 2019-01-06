@@ -6,7 +6,6 @@ edition = "2018"
 license = "MIT"
 
 [dependencies]
-derivative = "1.0"
 failure = "0.1"
 libc = "0.2"
 dirs = "1.0.4"
