@@ -73,6 +73,11 @@ fn run() -> Result<(), Error> {
             Key::Char(c) => {
                 session.process_key(c as c_int);
             }
+            Key::F(n) => {
+                // F1 = 0xffbe, F11 = 0xffc8, according to the source of fcitx
+                let code = 0xffbd + n as i32;
+                session.process_key(code);
+            }
             _ => {}
         }
 
