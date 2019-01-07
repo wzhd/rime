@@ -10,12 +10,26 @@ failure = "0.1"
 libc = "0.2"
 dirs = "1.0.4"
 termion = { version = "1", optional = true }
+serde = "1"
+serde_json = { version = "1", optional = true }
+serde_derive = "1"
 
 [features]
 default = [ "term" ]
 term = [ "termion" ]
+network = [ "serde_json" ]
 
 [[bin]]
 name = "ttw"
 path="src/bin/rime-demo-term.rs"
 required-features = [ "term" ]
+
+[[bin]]
+name = "rime-server-simple"
+path="src/bin/rime-server-simple.rs"
+required-features = [ "network" ]
+
+[[bin]]
+name = "rime-client-term"
+path="src/bin/rime-client-term.rs"
+required-features = [ "network" ]

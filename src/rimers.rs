@@ -8,22 +8,34 @@ use crate::cdef::RimeComposition;
 use crate::cdef::RimeContext;
 use crate::cdef::RimeMenu;
 use crate::cdef::RimeStatus;
+use crate::KeyPress;
+use crate::Response;
+use serde_derive::{Deserialize, Serialize};
 use std::ffi::NulError;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_int;
 use std::path::Path;
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::str::Utf8Error;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::MutexGuard;
+
+/// Playing it safe
+/// It's not known whether rime's api is thread-safe
+/// It could be designed for single-user use-cases
+type SharedApi = Arc<Mutex<RimeApi>>;
+
+type ExclusiveApi<'a> = MutexGuard<'a, RimeApi>;
 
 /// Configure paths and start using Rime
 pub struct RimeRs {
-    api: Rc<RimeApi>,
+    api: SharedApi,
 }
 
 /// Used for api calls that require a session ID
 pub struct Session {
-    api: Rc<RimeApi>,
+    api: SharedApi,
     session_id: RimeSessionId,
 }
 
@@ -76,12 +88,14 @@ impl RimeRs {
             api.initialize.unwrap()(&mut traits);
             api.start_maintenance.unwrap()(0);
         }
-        Ok(RimeRs { api: Rc::new(api) })
+        Ok(RimeRs {
+            api: Arc::new(Mutex::new(api)),
+        })
     }
 
     pub fn create_session(&self) -> Session {
         let sid = unsafe {
-            self.api
+            self.api()
                 .create_session
                 .expect("create_session is null function")()
         };
@@ -93,42 +107,51 @@ impl RimeRs {
 
     pub fn user_dir(&self) -> Result<&str, Utf8Error> {
         let cstr = unsafe {
-            let d = self.api.get_user_data_dir.unwrap()();
+            let d = self.api().get_user_data_dir.unwrap()();
             CStr::from_ptr(d)
         };
         cstr.to_str()
     }
     pub fn shared_dir(&self) -> Result<&str, Utf8Error> {
         let cstr = unsafe {
-            let d = self.api.get_shared_data_dir.unwrap()();
+            let d = self.api().get_shared_data_dir.unwrap()();
             CStr::from_ptr(d)
         };
         cstr.to_str()
     }
+
+    fn api(&self) -> ExclusiveApi {
+        self.api.lock().expect("Mutex poisoned")
+    }
 }
 
 impl Session {
+    fn api(&self) -> ExclusiveApi {
+        self.api.lock().expect("Mutex poisoned")
+    }
+
     pub fn status(&self) -> Result<Status, Error> {
         // Should self.api.free_status be called at some point?
         let mut status = unsafe { RimeStatus::uninitialized() };
         unsafe {
-            self.api.get_status.unwrap()(self.session_id, &mut status);
+            self.api().get_status.unwrap()(self.session_id, &mut status);
         }
-        let status = Status::from_raw(self.api.clone(), status)?;
+        let status = Status::from_raw(self.api(), status)?;
         Ok(status)
     }
 
     pub fn context(&self) -> Result<Context, Error> {
         unsafe {
             let mut context = RimeContext::uninitialized();
-            if self.api.get_context.expect("get_context is null function")(
-                self.session_id,
-                &mut context,
-            ) == 0
+            if self
+                .api()
+                .get_context
+                .expect("get_context is null function")(self.session_id, &mut context)
+                == 0
             {
                 Err(Error::NoContext)
             } else {
-                let context = Context::new(self.api.clone(), context).unwrap();
+                let context = Context::new(self.api(), context).unwrap();
                 Ok(context)
             }
         }
@@ -137,7 +160,7 @@ impl Session {
         let mut rime_commit: RimeCommit;
         let status = unsafe {
             rime_commit = RimeCommit::uninitialized();
-            self.api.get_commit.expect("get_commit is null function")(
+            self.api().get_commit.expect("get_commit is null function")(
                 self.session_id,
                 &mut rime_commit,
             )
@@ -145,7 +168,7 @@ impl Session {
         let commit = if status == 0 {
             None
         } else {
-            let commit = Commit::from_raw(self.api.clone(), rime_commit)?;
+            let commit = Commit::from_raw(self.api(), rime_commit)?;
             Some(commit)
         };
         Ok(commit)
@@ -153,8 +176,24 @@ impl Session {
 
     pub fn process_key(&self, key: c_int) -> CBool {
         unsafe {
-            self.api.process_key.expect("process_key is null function")(self.session_id, key, 0)
+            self.api()
+                .process_key
+                .expect("process_key is null function")(self.session_id, key, 0)
         }
+    }
+
+    pub fn process_press(&self, key: KeyPress) -> Result<Response, Error> {
+        unsafe {
+            let api = self.api();
+            api.process_key.expect("process_key is null function")(
+                self.session_id,
+                key.key_code,
+                key.mask,
+            );
+        }
+        let commit = self.get_commit()?;
+        let context = self.context()?;
+        Ok(Response { commit, context })
     }
 
     pub fn session_id(&self) -> RimeSessionId {
@@ -162,7 +201,7 @@ impl Session {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Status {
     /// TODO: is schema_id and name ever null?
     pub schema_id: Option<String>,
@@ -176,7 +215,7 @@ pub struct Status {
     pub ascii_punct: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Context {
     pub commit_text_preview: Option<String>,
     pub composition: Composition,
@@ -184,7 +223,7 @@ pub struct Context {
 }
 
 /// Used to choose among input candidates
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Menu {
     pub page_size: c_int,
     pub page_no: c_int,
@@ -194,19 +233,19 @@ pub struct Menu {
     pub candidates: Vec<Candidate>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Candidate {
     pub text: String,
     pub comment: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Commit {
     /// get_commit will probably not return RimeCommit without valid text, I think
     pub text: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Composition {
     pub length: c_int,
     pub cursor_pos: c_int,
@@ -248,7 +287,7 @@ impl Menu {
 }
 
 impl Commit {
-    fn from_raw(api: Rc<RimeApi>, mut rime_commit: RimeCommit) -> Result<Commit, Utf8Error> {
+    fn from_raw(api: ExclusiveApi, mut rime_commit: RimeCommit) -> Result<Commit, Utf8Error> {
         // Is there a way to convert *mut c_char to String without copying?
         // Anyway, performance is totally okay
         let text = char_ptr_to_string(rime_commit.text)?;
@@ -263,7 +302,7 @@ impl Commit {
 }
 
 impl Status {
-    fn from_raw(api: Rc<RimeApi>, mut rime: RimeStatus) -> Result<Status, Utf8Error> {
+    fn from_raw(api: ExclusiveApi, mut rime: RimeStatus) -> Result<Status, Utf8Error> {
         let schema_id = char_ptr_to_string(rime.schema_id)?;
         let schema_name = char_ptr_to_string(rime.schema_name)?;
         let status = Status {
@@ -300,7 +339,7 @@ impl Composition {
 }
 
 impl Context {
-    fn new(api: Rc<RimeApi>, mut rime_context: RimeContext) -> Result<Context, Utf8Error> {
+    fn new(api: ExclusiveApi, mut rime_context: RimeContext) -> Result<Context, Utf8Error> {
         let preview = char_ptr_to_string(rime_context.commit_text_preview)?;
         let composition = Composition::from_raw(&rime_context.composition)?;
         let menu = Menu::from_raw(&rime_context.menu)?;
@@ -331,7 +370,7 @@ impl std::convert::From<Utf8Error> for Error {
 impl Drop for Session {
     fn drop(&mut self) {
         unsafe {
-            self.api.destroy_session.unwrap()(self.session_id);
+            self.api().destroy_session.unwrap()(self.session_id);
         }
     }
 }
