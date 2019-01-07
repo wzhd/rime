@@ -32,4 +32,4 @@ required-features = [ "network" ]
 [[bin]]
 name = "rime-client-term"
 path="src/bin/rime-client-term.rs"
-required-features = [ "network" ]
+required-features = [ "network", "term" ]

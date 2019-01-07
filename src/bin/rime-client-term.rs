@@ -15,16 +15,23 @@ use std::io::{stdin, stdout, Write};
 
 use rime::Context;
 use rime::{KeyPress, Response};
+use std::process;
 use termion::clear;
 
 fn main() -> Result<(), Error> {
     let mut args = env::args().skip(1);
     let addr = args.next().expect("Need server address as argument");
     let addr = SocketAddr::from_str(&addr).expect("Invalid address");
-    run(addr)
+    // program to run on each committed input
+    let call = if args.len() >= 2 && args.next().unwrap() == "-e" {
+        Some(args.next().unwrap())
+    } else {
+        None
+    };
+    run(addr, call)
 }
 
-fn run(addr: SocketAddr) -> Result<(), Error> {
+fn run(addr: SocketAddr, call: Option<String>) -> Result<(), Error> {
     let mut stdout = stdout().into_raw_mode()?;
     write!(
         stdout,
@@ -79,6 +86,9 @@ fn run(addr: SocketAddr) -> Result<(), Error> {
         let context = &response.context;
         show_rime_menu(context)?;
         if let Some(commit) = response.commit {
+            if let Some(ref prog) = call {
+                process::Command::new(prog).arg(&commit.text).spawn()?;
+            }
             commited.push_back(commit.text);
             while commited.len() > 3 {
                 commited.pop_front();
