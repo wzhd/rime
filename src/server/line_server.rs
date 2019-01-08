@@ -12,6 +12,7 @@ use super::threads::ThreadPool;
 use crate::rimers::RimeRs;
 use crate::KeyPress;
 use std::io::BufRead;
+use std::net::SocketAddr;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Point {
@@ -19,8 +20,8 @@ struct Point {
     y: i32,
 }
 
-pub fn run() -> Result<(), Error> {
-    let listener = TcpListener::bind("127.0.0.1:17878")?;
+pub fn run(addr: SocketAddr) -> Result<(), Error> {
+    let listener = TcpListener::bind(addr)?;
     let pool = ThreadPool::new(4);
     let rime = Arc::new(RimeRs::new()?);
 
