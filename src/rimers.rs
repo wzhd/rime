@@ -15,7 +15,6 @@ use std::ffi::NulError;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_int;
 use std::path::Path;
-use std::path::PathBuf;
 use std::str::Utf8Error;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -45,8 +44,10 @@ pub enum Error {
     CStringError { error: NulError },
     #[fail(display = "CString isn't in valid UTF-8: {:?}.", error)]
     UtfError { error: Utf8Error },
-    #[fail(display = "Can't find data directories needed.")]
-    DirsNotFound,
+    #[fail(display = "Rime user directory not found.")]
+    UserDirNotFound,
+    #[fail(display = "Can't find rime shared data directory.")]
+    DataDirNotFound,
     #[fail(display = "Directory path is not valid string.")]
     PathStrInvalid,
     #[fail(display = "get_context returned 0.")]
@@ -56,10 +57,22 @@ pub enum Error {
 impl RimeRs {
     /// Start Rime with default paths
     pub fn new() -> Result<RimeRs, Error> {
-        let home = dirs::home_dir().ok_or(Error::DirsNotFound)?;
-        let user_dir = home.join(".config").join("rimers");
-        let data_dir = PathBuf::from("/usr/share/rime-data/");
-        RimeRs::new_at(&user_dir, &data_dir)
+        let home = dirs::home_dir().ok_or(Error::UserDirNotFound)?;
+        let user_dir = [".config/rimers", ".config/fcitx/rime", ".config/ibus/rime"]
+            .iter()
+            .map(|&rel| home.join(rel))
+            .find(|p| p.exists())
+            .ok_or(Error::UserDirNotFound)?;
+        let data_dir = [
+            "/usr/share/brise",
+            "/usr/share/rime-data",
+            "/usr/share/rime/data",
+        ]
+        .iter()
+        .map(|&p| -> &Path { p.as_ref() })
+        .find(|&p| p.exists())
+        .ok_or(Error::DataDirNotFound)?;
+        RimeRs::new_at(&user_dir, data_dir)
     }
 
     /// Start Rime with the given paths
