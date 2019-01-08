@@ -1,4 +1,3 @@
-use std::fs;
 use std::os::raw::c_int;
 
 use failure::Error;
@@ -96,14 +95,6 @@ fn run() -> Result<(), Error> {
         show_rime_menu(&context)?;
         stdout.flush()?;
     }
-    let mut out_file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("rimers-output.txt")
-        .expect("Can't print to file");
-    out_file
-        .write_all(commited.as_bytes())
-        .expect("Can't save typed text.");
     Ok(())
 }
 
